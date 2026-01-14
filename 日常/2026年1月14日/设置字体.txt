@@ -1,0 +1,99 @@
+import os
+import sys
+import win32com.client as win32
+from pathlib import Path
+
+# --- Word 常量定义 ---
+wdColorRed = 255       # 红色 (RGB: 255, 0, 0)
+wdStory = 6            # 文档主文字区域
+wdCollapseEnd = 0      # 折叠到末尾
+wdFindStop = 0         # 查找结束停止
+
+def highlight_answers(file_path):
+    # 1. 路径处理
+    file_path = Path(file_path).resolve()
+    if not file_path.exists():
+        print(f"错误: 文件不存在 - {file_path}")
+        return
+
+    # 生成输出文件名
+    output_file = file_path.parent / f"{file_path.stem}_答案标红.docx"
+
+    print(f"正在处理文档: {file_path.name}")
+    print("正在搜索 '答案' 并标红，请稍候...")
+
+    word = None
+    doc = None
+    
+    try:
+        # 启动 Word
+        word = win32.Dispatch('Word.Application')
+        word.Visible = False  # 后台运行
+        word.DisplayAlerts = False
+
+        doc = word.Documents.Open(str(file_path))
+        selection = word.Selection
+
+        # 将光标移动到文档开头
+        selection.HomeKey(Unit=wdStory)
+
+        # 设置查找参数
+        find = selection.Find
+        find.ClearFormatting()
+        find.Text = "答案"
+        find.Forward = True
+        find.Wrap = wdFindStop # 查不到就停，不循环
+        find.Format = False
+
+        count = 0
+        
+        # --- 核心循环：查找并标红 ---
+        while True:
+            # 执行查找
+            found = find.Execute()
+            if not found:
+                break
+            
+            # 此时 selection 选中的是 "答案" 这两个字
+            # 我们需要获取包含这两个字的“整个段落”
+            para_range = selection.Paragraphs(1).Range
+            
+            # 将该段落字体设为红色
+            para_range.Font.Color = wdColorRed
+            
+            count += 1
+            
+            # 将光标折叠到选中内容的末尾，防止死循环
+            selection.Collapse(Direction=wdCollapseEnd)
+
+        # 保存结果
+        doc.SaveAs(str(output_file), FileFormat=12)
+        
+        print(f"\n==========================================")
+        print(f"处理完成！共标红了 {count} 处包含'答案'的行。")
+        print(f"新文件已保存: {output_file}")
+        print(f"==========================================")
+
+    except Exception as e:
+        print(f"\n发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # 清理资源
+        if doc:
+            try:
+                doc.Close(SaveChanges=False)
+            except:
+                pass
+        if word:
+            try:
+                word.Quit()
+            except:
+                pass
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("使用方法: python script.py [文档路径]")
+    else:
+        target_file = sys.argv[1]
+        highlight_answers(target_file)
